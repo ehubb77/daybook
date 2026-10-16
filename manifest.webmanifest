@@ -1,0 +1,43 @@
+{
+  "name": "Daybook",
+  "short_name": "Daybook",
+  "description": "Calendar, tasks and ideas with drag and drop.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "background_color": "#F5F5F7",
+  "theme_color": "#D6248A",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New task",
+      "url": "./?new=task"
+    },
+    {
+      "name": "Ideas",
+      "url": "./?view=ideas"
+    }
+  ]
+}
