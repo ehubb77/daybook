@@ -1,6 +1,6 @@
 // Daybook service worker: keeps the app working offline.
 // Bump VERSION whenever index.html changes so installed copies pick up the update.
-const VERSION = 'daybook-v3';
+const VERSION = 'daybook-v4';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/favicon-32.png'];
 
 self.addEventListener('install', e => {
@@ -22,7 +22,7 @@ self.addEventListener('fetch', e => {
     return;
   }
   // Everything else (icons, fonts): serve from cache, refresh in the background.
-  if (url.origin === location.origin || url.hostname.endsWith('fonts.googleapis.com') || url.hostname.endsWith('fonts.gstatic.com')) {
+  if (url.origin === location.origin || url.hostname.endsWith('fonts.googleapis.com') || url.hostname.endsWith('fonts.gstatic.com') || url.href.includes('cdn.jsdelivr.net/npm/@supabase/')) {
     e.respondWith(caches.match(req).then(hit => {
       const net = fetch(req).then(res => { if (res.ok || res.type === 'opaque') { const copy = res.clone(); caches.open(VERSION).then(c => c.put(req, copy)); } return res; }).catch(() => hit);
       return hit || net;

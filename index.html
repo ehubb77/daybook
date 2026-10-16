@@ -76,6 +76,17 @@ h1 b{font-weight:800}
 .btn.danger.armed{background:var(--danger);color:#fff}
 .icon-btn{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;padding:0}
 .icon-btn svg{width:16px;height:16px}
+.sync-btn{position:relative}
+.sync-btn i{position:absolute;right:6px;bottom:6px;width:8px;height:8px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 2px var(--panel)}
+.sync-btn[data-state="synced"] i{background:#22A06B}
+.sync-btn[data-state="syncing"] i{background:#F59E0B}
+.sync-btn[data-state="error"] i{background:var(--danger)}
+.sync-status{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:var(--bg);font-weight:600}
+.sync-status i{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none}
+.sync-status[data-state="synced"] i{background:#22A06B}
+.sync-status[data-state="syncing"] i{background:#F59E0B}
+.sync-status[data-state="error"] i{background:var(--danger)}
+.sync-status span{font-weight:500;color:var(--muted);font-size:12px;margin-left:auto;text-align:right}
 
 .content{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}
 .panel{background:var(--panel);border-radius:24px;box-shadow:var(--shadow)}
@@ -294,6 +305,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
         </div>
         <div class="actions">
           <button class="btn primary" id="newBtn" title="New (N)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New</button>
+          <button class="icon-btn sync-btn" id="syncBtn" data-goto="settings" hidden aria-label="Sync status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.7-8.95A6 6 0 0 1 17.8 8.5 4.75 4.75 0 0 1 17.5 18H7z"/></svg><i></i></button>
           <button class="icon-btn" id="themeBtn" aria-label="Switch light or dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg></button>
         </div>
       </header>
@@ -369,6 +381,23 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
                 <div class="field"><label for="s-end">Day ends</label><select id="s-end"></select></div>
               </div>
               <label class="switch">Show weekends<input type="checkbox" id="s-weekends"></label>
+            </div>
+            <div class="panel card" id="syncCard" hidden>
+              <h2>Sync</h2>
+              <div id="syncOut">
+                <p class="fine" style="margin-bottom:12px">Sign in on each device with the same email and password to keep your calendar, tasks and ideas in sync.</p>
+                <form id="authForm" style="display:flex;flex-direction:column;gap:10px">
+                  <div class="field"><label for="a-email">Email</label><input id="a-email" type="email" autocomplete="username" required></div>
+                  <div class="field"><label for="a-pass">Password</label><input id="a-pass" type="password" autocomplete="current-password" minlength="8" required></div>
+                  <div class="btn-row"><button class="btn primary small" id="signInBtn">Sign in</button><button type="button" class="btn ghost small" id="signUpBtn">Create account</button></div>
+                  <p class="fine" id="authMsg" hidden></p>
+                </form>
+              </div>
+              <div id="syncIn" hidden style="display:flex;flex-direction:column;gap:12px">
+                <div class="sync-status" id="syncStatus" data-state="idle"><i></i><b id="syncWho"></b><span id="syncText"></span></div>
+                <div class="btn-row"><button type="button" class="btn ghost small" id="syncNow">Sync now</button><button type="button" class="btn ghost small" id="signOutBtn">Sign out</button></div>
+                <p class="fine">Changes made offline sync the next time you're connected.</p>
+              </div>
             </div>
             <div class="panel card">
               <h2>Your data</h2>
@@ -453,7 +482,7 @@ const cv=id=>{const c=cat(id);return `--c:${c.color};--ct:${ink(c.color)}`};
 
 /* ---------- data ---------- */
 const DEFAULT_CATS=()=>[{id:'work',name:'Work',color:'#3B82F6'},{id:'meetings',name:'Meetings',color:'#F59E0B'},{id:'projects',name:'Projects',color:'#8B5CF6'},{id:'personal',name:'Personal',color:'#22A06B'},{id:'general',name:'General',color:'#64748B'}];
-function blank(){return {v:3,cats:DEFAULT_CATS(),tasks:[],events:[],ideas:[]}}
+function blank(){return {v:3,cats:DEFAULT_CATS().map(c=>({...c,u:1})),tasks:[],events:[],ideas:[]}}
 function seed(){
   const m=monday(new Date());const D=n=>iso(addDays(m,n));const T=n=>iso(addDays(new Date(),n));
   const cats=DEFAULT_CATS();
@@ -507,13 +536,25 @@ S=(S&&S.cats)?normalize(S):blank();
 try{P=JSON.parse(localStorage.getItem(PREF))}catch(e){}
 P=Object.assign({mode:'system',accent:'#D6248A',name:'',dayStart:7,dayEnd:18,weekends:false},P||{});
 let warned=false;
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){if(!warned){warned=true;toast('Changes can\'t be saved in this browser window.')}}};
-const savePrefs=()=>{try{localStorage.setItem(PREF,JSON.stringify(P))}catch(e){}};
+const COLS=['cats','tasks','events','ideas'];
+let prevMap=null;
+function stamp(){ // mark changed items, deletions and reorders with a time so devices can merge
+  const now=Date.now();const cur=new Map();S.deleted=S.deleted||{};S.ou=S.ou||{};S.osig=S.osig||{};
+  for(const k of COLS){for(const it of S[k]){const {u,_l,_w,_lane,_occ,...rest}=it;const key=k+':'+it.id;const j=JSON.stringify(rest);cur.set(key,j);
+      if(prevMap&&prevMap.has(key)?prevMap.get(key)!==j:prevMap&&!prevMap.has(key))it.u=now;else if(!it.u)it.u=1;
+      if(S.deleted[it.id]&&it.u>S.deleted[it.id])delete S.deleted[it.id]}
+    const sig=S[k].map(x=>x.id).join(',');if(S.osig[k]!==sig){if(prevMap)S.ou[k]=now;S.osig[k]=sig}}
+  if(prevMap)for(const key of prevMap.keys())if(!cur.has(key))S.deleted[key.slice(key.indexOf(':')+1)]=now;
+  prevMap=cur;
+}
+const save=(fromSync)=>{stamp();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){if(!warned){warned=true;toast('Changes can\'t be saved in this browser window.')}}if(!fromSync)Sync.schedule()};
+const SYNC_PREFS=['accent','name','dayStart','dayEnd','weekends'];
+const savePrefs=(fromSync)=>{if(!fromSync)P.u=Date.now();try{localStorage.setItem(PREF,JSON.stringify(P))}catch(e){}if(!fromSync)Sync.schedule()};
 function applyPrefs(){const r=document.documentElement;if(P.mode==='system')delete r.dataset.theme;else r.dataset.theme=P.mode;
   r.style.setProperty('--accent',P.accent);r.style.setProperty('--now',P.accent);r.style.setProperty('--on-accent',ink(P.accent));
   const tc=document.querySelector('meta[name=theme-color]');if(tc)tc.content=getComputedStyle(r).getPropertyValue('--bg').trim()||'#F5F5F7'}
 applyPrefs();
-const SM=()=>P.dayStart*60, EM=()=>P.dayEnd*60;
+const SM=()=>Math.round(P.dayStart*60), EM=()=>Math.round(P.dayEnd*60);
 
 let view='today', anchor=iso(new Date()), taskFilter='all', ideaFilter='all';
 const phoneMQ=matchMedia('(max-width:700px)');
@@ -577,7 +618,10 @@ function renderToday(){
   grid.style.minWidth=phone?'0':`${54+days.length*120}px`;
   let html='';
   if(!phone){html='<div></div>';for(const d of days){const x=parse(d);html+=`<div class="dh ${d===today?'today':''}">${DOW[x.getDay()]}<b>${x.getDate()}</b></div>`}}
-  html+=`<div class="times" style="height:${H}px">`+Array.from({length:P.dayEnd-P.dayStart},(_,i)=>`<span style="top:${i*60+(i?0:8)}px">${fmtT((P.dayStart+i)*60).replace(':00','')}</span>`).join('')+'</div>';
+  const lineOff=(60-SM()%60)%60;let marks='';
+  for(let m=SM()+lineOff;m<EM();m+=60){const top=m-SM();marks+=`<span style="top:${Math.max(top,8)}px">${fmtT(m).replace(':00','')}</span>`}
+  if(lineOff>=45||!marks)marks=`<span style="top:8px">${fmtT(SM())}</span>`+marks;
+  html+=`<div class="times" style="height:${H}px">${marks}</div>`;
   for(const d of days){
     const evs=eventsOn(d).filter(e=>e.start<EM()&&e.start+e.dur>SM()).sort((x,y)=>x.start-y.start||y.dur-x.dur);
     layout(evs);
@@ -586,7 +630,7 @@ function renderToday(){
       return `<div class="ev cat ${len<=30?'short':len<=60?'mid':''} ${t&&t.status==='done'?'done':''}" data-drag="event" data-id="${e.id}" data-occ="${d}" style="${cv(e.stream)};top:${top+2}px;height:${len-4}px;left:calc(${e._l*100}% + 2px);width:calc(${e._w*100}% - 4px)">
       <span class="tag">${t?'Task · ':''}${esc(cat(e.stream).name)}</span><div class="ttl">${esc(e.title)}</div><div class="tm">${fmtT(e.start)} – ${fmtT(e.start+e.dur)}${e.repeat!=='none'?ICON.repeat:''}</div><span class="resize" data-resize="${e.id}"></span></div>`}).join('');
     if(d===today){const n=new Date();const mins=n.getHours()*60+n.getMinutes();if(mins>=SM()&&mins<=EM())inner+=`<div class="now" style="top:${mins-SM()}px"></div>`}
-    html+=`<div class="day-col ${d===today?'today':''}" data-date="${d}" style="height:${H}px">${inner}</div>`;
+    html+=`<div class="day-col ${d===today?'today':''}" data-date="${d}" style="height:${H}px;background-position:0 ${lineOff}px">${inner}</div>`;
   }
   grid.innerHTML=html;
   // progress
@@ -635,9 +679,9 @@ function renderSettings(){
     <div class="sw">${swatches(c.color,'data-sw')}<label class="custom">Custom <input type="color" id="pick-${c.id}" value="${c.color}" data-pick="${c.id}"></label></div></div>`).join('');
   document.querySelectorAll('#modeSeg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mode===P.mode));
   $('#accentSw').innerHTML=swatches(P.accent,'data-accent')+`<label class="custom">Custom <input type="color" id="pick-accent" value="${P.accent}" data-accentpick></label>`;
-  const hrs=Array.from({length:24},(_,h)=>h);
-  $('#s-start').innerHTML=hrs.filter(h=>h<P.dayEnd).map(h=>`<option value="${h}" ${h===P.dayStart?'selected':''}>${fmtT(h*60)}</option>`).join('');
-  $('#s-end').innerHTML=hrs.concat(24).filter(h=>h>P.dayStart).map(h=>`<option value="${h}" ${h===P.dayEnd?'selected':''}>${h===24?'Midnight':fmtT(h*60)}</option>`).join('');
+  const hrs=Array.from({length:49},(_,i)=>i/2);
+  $('#s-start').innerHTML=hrs.filter(h=>h<24&&h<P.dayEnd).map(h=>`<option value="${h}" ${h===P.dayStart?'selected':''}>${fmtT(h*60)}</option>`).join('');
+  $('#s-end').innerHTML=hrs.filter(h=>h>P.dayStart).map(h=>`<option value="${h}" ${h===P.dayEnd?'selected':''}>${h===24?'Midnight':fmtT(h*60)}</option>`).join('');
   $('#s-name').value=P.name;$('#s-weekends').checked=!!P.weekends;
   renderPreview();
 }
@@ -841,10 +885,76 @@ document.addEventListener('keydown',e=>{
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',applyPrefs);
 if(/claude\.ai|claudeusercontent/.test(location.host)||window.top!==window)$('#exportBtn').hidden=true;
+/* ---------- sync (Supabase) ---------- */
+const SYNC_CONFIG={url:'',key:''}/*SYNC_CONFIG*/;
+function mergeState(L,R){
+  const out={v:3,deleted:{},ou:{},osig:{}};const del=out.deleted;
+  for(const src of[L.deleted||{},R.deleted||{}])for(const id in src)del[id]=Math.max(del[id]||0,src[id]);
+  const cutoff=Date.now()-90*864e5;for(const id in del)if(del[id]<cutoff)delete del[id];
+  for(const k of COLS){const a=L[k]||[],b=R[k]||[];const pick=new Map();
+    for(const it of[...a,...b]){const cur=pick.get(it.id);if(!cur||(it.u||0)>(cur.u||0))pick.set(it.id,it)}
+    for(const [id,it] of pick)if(del[id]&&del[id]>=(it.u||0))pick.delete(id);
+    const lu=(L.ou||{})[k]||0,ru=(R.ou||{})[k]||0;const base=lu>=ru?a:b,other=lu>=ru?b:a;
+    const seen=new Set(),list=[];for(const it of[...base,...other])if(pick.has(it.id)&&!seen.has(it.id)){seen.add(it.id);list.push(pick.get(it.id))}
+    out[k]=list;out.ou[k]=Math.max(lu,ru);out.osig[k]=list.map(x=>x.id).join(',')}
+  if(!out.cats.length)out.cats=DEFAULT_CATS().map(c=>({...c,u:1}));
+  return out;
+}
+const Sync=(()=>{
+  let sb=null,user=null,timer=null,busy=false,again=false,chan=null,state='idle',lastPush='',pendingRemote=null;
+  const on=()=>!!(SYNC_CONFIG.url&&SYNC_CONFIG.key)&&!/claude\.ai|claudeusercontent/.test(location.host);
+  function setState(st,txt){state=st;const b=$('#syncBtn');b.dataset.state=st;b.title=txt||'';const ss=$('#syncStatus');if(ss){ss.dataset.state=st;$('#syncText').textContent=txt||''}}
+  function ui(){$('#syncCard').hidden=!on();$('#syncBtn').hidden=!on();if(!on())return;$('#syncOut').hidden=!!user;$('#syncIn').hidden=!user;if(user)$('#syncWho').textContent=user.email}
+  function prefsOut(){const o={u:P.u||0};SYNC_PREFS.forEach(k=>o[k]=P[k]);return o}
+  function applyRemote(row){
+    if(!row)return false;const before=JSON.stringify(S);S=normalize(mergeState(S,row.data||{}));
+    if(row.prefs&&(row.prefs.u||0)>(P.u||0)){SYNC_PREFS.forEach(k=>{if(k in row.prefs)P[k]=row.prefs[k]});P.u=row.prefs.u;savePrefs(true);applyPrefs()}
+    prevMap=null;save(true);const changed=JSON.stringify(S)!==before;if(changed)safeRender();return changed}
+  function safeRender(){if(drag||ed){pendingRemote=true;return}render()}
+  setInterval(()=>{if(pendingRemote&&!drag&&!ed){pendingRemote=null;render()}},1000);
+  async function fetchRow(){const {data,error}=await sb.from('daybook_state').select('data,prefs,updated_at').eq('user_id',user.id).maybeSingle();if(error)throw error;return data}
+  async function run(){ // pull, merge, push
+    if(!sb||!user)return;if(!navigator.onLine){setState('idle','Offline. Changes will sync later.');return}
+    if(busy){again=true;return}busy=true;setState('syncing','Syncing…');
+    try{const row=await fetchRow();if(row)applyRemote(row);
+      lastPush=uid();const body={user_id:user.id,data:{...S,pushId:lastPush},prefs:prefsOut(),updated_at:new Date().toISOString()};
+      const {error}=await sb.from('daybook_state').upsert(body);if(error)throw error;
+      setState('synced','Synced '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}))}
+    catch(e){console.warn(e);setState('error','Sync failed. Will retry.');clearTimeout(timer);timer=setTimeout(run,15000)}
+    finally{busy=false;if(again){again=false;run()}}}
+  function schedule(){if(!user)return;clearTimeout(timer);setState('syncing','Waiting to sync…');timer=setTimeout(run,1200)}
+  function listen(){if(chan)sb.removeChannel(chan);
+    chan=sb.channel('daybook-'+user.id).on('postgres_changes',{event:'*',schema:'public',table:'daybook_state',filter:'user_id=eq.'+user.id},p=>{
+      const row=p.new;if(!row||!row.data||row.data.pushId===lastPush)return;applyRemote(row);setState('synced','Synced '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}))}).subscribe()}
+  async function setUser(u){const was=user&&user.id;user=u||null;ui();if(user&&user.id!==was){listen();run()}if(!user){if(chan){sb.removeChannel(chan);chan=null}setState('idle','')}}
+  function loadLib(){return new Promise((res,rej)=>{if(window.supabase)return res();const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc)})}
+  async function init(){ui();if(!on())return;
+    try{await loadLib()}catch(e){setState('error','Sync is unavailable offline.');return}
+    sb=window.supabase.createClient(SYNC_CONFIG.url,SYNC_CONFIG.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+    const {data}=await sb.auth.getSession();await setUser(data.session&&data.session.user);
+    sb.auth.onAuthStateChange((_e,session)=>setUser(session&&session.user));
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')run()});
+    addEventListener('online',run);setInterval(()=>{if(document.visibilityState==='visible')run()},5*60*1000)}
+  async function auth(kind){const email=$('#a-email').value.trim(),password=$('#a-pass').value;const msg=$('#authMsg');msg.hidden=false;
+    if(!email||password.length<8){msg.textContent='Enter your email and a password of at least 8 characters.';return}
+    if(!sb){msg.textContent='Sync isn\'t available right now. Check your connection and reload.';return}
+    msg.textContent=kind==='up'?'Creating your account…':'Signing in…';
+    const r=kind==='up'?await sb.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}}):await sb.auth.signInWithPassword({email,password});
+    if(r.error){msg.textContent=r.error.message.replace('Invalid login credentials','That email and password don\'t match.');return}
+    if(kind==='up'&&!r.data.session){msg.textContent='Check your email and click the confirmation link, then sign in here.';return}
+    msg.hidden=true;$('#a-pass').value='';toast('Signed in. Syncing your data.')}
+  async function signOut(){if(sb)await sb.auth.signOut();toast('Signed out. Your data stays on this device.')}
+  return {init,schedule,run,auth,signOut,ui,get state(){return state}};
+})();
+$('#authForm').addEventListener('submit',e=>{e.preventDefault();e.stopPropagation();Sync.auth('in')});
+$('#signUpBtn').onclick=()=>Sync.auth('up');
+$('#signOutBtn').onclick=()=>Sync.signOut();
+$('#syncNow').onclick=()=>Sync.run();
 const qp=new URLSearchParams(location.search);
 if(['today','tasks','ideas','settings'].includes(qp.get('view')))view=qp.get('view');
 render();
 if(['task','event','idea'].includes(qp.get('new')))openEditor(qp.get('new'),null);
+stamp();Sync.init();
 setInterval(()=>{if(!drag&&view==='today'&&!ed)render()},60000);
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')&&!/claude\.ai|claudeusercontent/.test(location.host)){navigator.serviceWorker.register('sw.js').catch(()=>{})}
 </script>
