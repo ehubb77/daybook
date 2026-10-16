@@ -886,7 +886,7 @@ document.addEventListener('keydown',e=>{
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',applyPrefs);
 if(/claude\.ai|claudeusercontent/.test(location.host)||window.top!==window)$('#exportBtn').hidden=true;
 /* ---------- sync (Supabase) ---------- */
-const SYNC_CONFIG={url:'',key:''}/*SYNC_CONFIG*/;
+const SYNC_CONFIG={"url": "https://vjkyfjuegedbfuzdcuka.supabase.co", "key": "sb_publishable_SnCicUEBbRBFv_N56dLlLw_6I8UWpcu"};
 function mergeState(L,R){
   const out={v:3,deleted:{},ou:{},osig:{}};const del=out.deleted;
   for(const src of[L.deleted||{},R.deleted||{}])for(const id in src)del[id]=Math.max(del[id]||0,src[id]);
@@ -927,7 +927,7 @@ const Sync=(()=>{
     chan=sb.channel('daybook-'+user.id).on('postgres_changes',{event:'*',schema:'public',table:'daybook_state',filter:'user_id=eq.'+user.id},p=>{
       const row=p.new;if(!row||!row.data||row.data.pushId===lastPush)return;applyRemote(row);setState('synced','Synced '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}))}).subscribe()}
   async function setUser(u){const was=user&&user.id;user=u||null;ui();if(user&&user.id!==was){listen();run()}if(!user){if(chan){sb.removeChannel(chan);chan=null}setState('idle','')}}
-  function loadLib(){return new Promise((res,rej)=>{if(window.supabase)return res();const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc)})}
+  function loadLib(){return new Promise((res,rej)=>{if(window.supabase)return res();const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc)})}
   async function init(){ui();if(!on())return;
     try{await loadLib()}catch(e){setState('error','Sync is unavailable offline.');return}
     sb=window.supabase.createClient(SYNC_CONFIG.url,SYNC_CONFIG.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
