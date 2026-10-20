@@ -562,7 +562,7 @@ const isPhone=()=>phoneMQ.matches;
 phoneMQ.addEventListener?.('change',()=>render());
 
 let undoFn=null;
-function toast(msg,undo){const t=$('#toast');$('#toastMsg').textContent=msg;undoFn=undo||null;$('#toastUndo').hidden=!undo;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>{t.hidden=true;undoFn=null},undo?5000:1900)}
+function toast(msg,undo,label){const t=$('#toast');$('#toastMsg').textContent=msg;undoFn=undo||null;$('#toastUndo').hidden=!undo;$('#toastUndo').textContent=label||'Undo';t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>{t.hidden=true;undoFn=null},undo?5000:1900)}
 $('#toastUndo').onclick=()=>{if(undoFn){undoFn();undoFn=null;$('#toast').hidden=true}};
 function snapshot(){const before=JSON.stringify(S);return()=>{S=normalize(JSON.parse(before));save();render()}}
 
@@ -839,22 +839,44 @@ function openEditor(kind,id,preset={}){
   $('#f-title').value=v.title;$('#f-stream').value=cat(v.stream).id;$('#f-notes').value=v.notes||'';$('#f-date').value=v.date;
   $('#f-start').value=`${pad(Math.floor(v.start/60))}:${pad(v.start%60)}`;$('#f-dur').value=String(v.dur);if(!$('#f-dur').value){$('#f-dur').insertAdjacentHTML('beforeend',`<option value="${v.dur}">${v.dur} min</option>`);$('#f-dur').value=String(v.dur)}
   $('#f-repeat').value=v.repeat;$('#f-status').value=v.status;$('#f-col').value=v.col;$('#f-due').value=v.due||'';$('#subIn').value='';
-  renderSubs();$('#scrim').hidden=false;if(!isPhone())setTimeout(()=>$('#f-title').focus(),0);
+  renderSubs();ed.initial=formSnap();
+  const dr=readDraft();if(dr&&dr.kind===kind&&dr.id===(id||null)&&JSON.stringify(dr.v)!==ed.initial){fillForm(dr.v);toast('Restored text you hadn\'t saved yet')}
+  resetCancel();$('#scrim').hidden=false;if(!isPhone())setTimeout(()=>$('#f-title').focus(),0);
 }
-const closeEd=()=>{$('#scrim').hidden=true;ed=null};
+/* never lose typing: unsaved editor text is kept as a draft until it's saved or deliberately discarded */
+const DRAFT='daybook-draft';
+const FIELDS=['title','stream','status','col','repeat','date','start','dur','due','notes'];
+function formSnap(){const v={};FIELDS.forEach(f=>v[f]=$('#f-'+f).value);v.subs=ed?ed.subs.map(x=>({...x})):[];return JSON.stringify(v)}
+function fillForm(v){FIELDS.forEach(f=>{if(f in v)$('#f-'+f).value=v[f]});if(ed&&v.subs){ed.subs=v.subs;renderSubs()}}
+function readDraft(){try{return JSON.parse(localStorage.getItem(DRAFT))}catch(e){return null}}
+function writeDraft(){if(!ed)return;const snap=formSnap();try{if(snap===ed.initial)localStorage.removeItem(DRAFT);else localStorage.setItem(DRAFT,JSON.stringify({kind:ed.kind,id:ed.item?ed.item.id:null,v:JSON.parse(snap),at:Date.now()}))}catch(e){}}
+function clearDraft(){try{localStorage.removeItem(DRAFT)}catch(e){}}
+const isDirty=()=>!!ed&&formSnap()!==ed.initial;
+function resetCancel(){const b=$('#edCancel');b.textContent='Cancel';b.classList.remove('danger','armed');clearTimeout(b._t)}
+const closeEd=()=>{$('#scrim').hidden=true;ed=null;resetCancel()};
+function discardEd(){clearDraft();closeEd()}
+function requestClose(){ // backdrop tap or Esc: only closes when nothing would be lost
+  if(!isDirty()){discardEd();return}
+  writeDraft();toast('You have unsaved changes',()=>discardEd(),'Discard')}
+$('#editor').addEventListener('input',writeDraft);
+$('#editor').addEventListener('change',writeDraft);
 $('#edKind').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setKind(b.dataset.k)});
-$('#edCancel').onclick=closeEd;
-$('#scrim').addEventListener('click',e=>{if(e.target.id==='scrim')closeEd()});
-function addSub(){const v=$('#subIn').value.trim();if(!v)return;ed.subs.push({id:uid(),t:v,done:false});$('#subIn').value='';renderSubs();$('#subIn').focus()}
+$('#edCancel').onclick=()=>{const b=$('#edCancel');
+  if(!isDirty()||b.classList.contains('armed')){discardEd();return}
+  b.textContent='Discard changes?';b.classList.add('danger','armed');clearTimeout(b._t);b._t=setTimeout(resetCancel,4000)};
+let downOnScrim=false;
+$('#scrim').addEventListener('pointerdown',e=>{downOnScrim=e.target.id==='scrim'});
+$('#scrim').addEventListener('click',e=>{if(e.target.id==='scrim'&&downOnScrim&&!String(getSelection()).length)requestClose();downOnScrim=false});
+function addSub(){const v=$('#subIn').value.trim();if(!v)return;ed.subs.push({id:uid(),t:v,done:false});$('#subIn').value='';renderSubs();writeDraft();$('#subIn').focus()}
 $('#subAdd').onclick=addSub;
 $('#subIn').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addSub()}});
 $('#subs').addEventListener('click',e=>{const t=e.target.closest('[data-subtoggle]');if(t){const s=ed.subs[+t.dataset.subtoggle];s.done=!s.done;renderSubs();return}
-  const x=e.target.closest('[data-subdel]');if(x){ed.subs.splice(+x.dataset.subdel,1);renderSubs()}});
+  const x=e.target.closest('[data-subdel]');if(x){ed.subs.splice(+x.dataset.subdel,1);renderSubs()}writeDraft()});
 $('#subs').addEventListener('input',e=>{const i=e.target.dataset.subedit;if(i!=null)ed.subs[+i].t=e.target.value});
 $('#subs').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.subedit!=null)e.preventDefault()});
 $('#edDel').onclick=()=>{const undo=snapshot();const store={event:S.events,task:S.tasks,idea:S.ideas}[ed.kind];store.splice(store.indexOf(ed.item),1);
   if(ed.kind==='task')S.events=S.events.filter(x=>x.taskId!==ed.item.id);if(ed.kind==='event'&&ed.item.taskId){const t=S.tasks.find(x=>x.id===ed.item.taskId);if(t&&t.status==='doing')t.status='todo'}
-  const k=ed.kind;save();closeEd();render();toast(`${k[0].toUpperCase()+k.slice(1)} deleted`,undo)};
+  const k=ed.kind;save();discardEd();render();toast(`${k[0].toUpperCase()+k.slice(1)} deleted`,undo)};
 $('#editor').addEventListener('submit',e=>{e.preventDefault();
   const [hh,mm]=($('#f-start').value||'09:00').split(':').map(Number);
   const v={title:$('#f-title').value.trim(),stream:$('#f-stream').value,notes:$('#f-notes').value};
@@ -866,7 +888,7 @@ $('#editor').addEventListener('submit',e=>{e.preventDefault();
   else if(ed.kind==='task')S.tasks.unshift({id:uid(),...v});
   else S.ideas.unshift({id:uid(),taskId:null,...v});
   if(ed.kind==='event'){anchor=v.date;if(!ed.item)view='today'}
-  save();closeEd();render();toast('Saved');
+  save();discardEd();render();toast('Saved');
 });
 
 /* ---------- chrome ---------- */
@@ -876,7 +898,7 @@ $('#prev').onclick=()=>step(-1);$('#next').onclick=()=>step(1);
 $('#todayBtn').onclick=()=>{anchor=iso(new Date());render()};
 $('#themeBtn').onclick=()=>{const dark=P.mode==='system'?matchMedia('(prefers-color-scheme: dark)').matches:P.mode==='dark';P.mode=dark?'light':'dark';savePrefs();applyPrefs();if(view==='settings')renderSettings()};
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){if(drag)endDrag(true);else if(ed)closeEd();return}
+  if(e.key==='Escape'){if(drag)endDrag(true);else if(ed)requestClose();return}
   if(ed||e.metaKey||e.ctrlKey||e.altKey||e.target.closest('input,textarea,select'))return;
   if(e.key==='n'||e.key==='N'){e.preventDefault();$('#newBtn').click()}
   else if(e.key==='t'||e.key==='T'){view='today';anchor=iso(new Date());render()}
@@ -884,6 +906,7 @@ document.addEventListener('keydown',e=>{
   else if(view==='today'&&e.key==='ArrowRight')step(1);
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',applyPrefs);
+addEventListener('pagehide',writeDraft);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')writeDraft()});
 if(/claude\.ai|claudeusercontent/.test(location.host)||window.top!==window)$('#exportBtn').hidden=true;
 /* ---------- sync (Supabase) ---------- */
 const SYNC_CONFIG={"url": "https://vjkyfjuegedbfuzdcuka.supabase.co", "key": "sb_publishable_SnCicUEBbRBFv_N56dLlLw_6I8UWpcu"};
