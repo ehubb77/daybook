@@ -482,7 +482,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
       <div class="field"><label for="f-start">Start</label><input id="f-start" type="time" step="900"></div>
       <div class="field"><label for="f-dur">Length</label><select id="f-dur"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">1 hr</option><option value="90">1.5 hr</option><option value="120">2 hr</option><option value="180">3 hr</option><option value="240">4 hr</option></select></div>
     </div>
-    <div class="field" data-for="task"><label for="f-due">Due date</label><input id="f-due" type="date"></div>
+    <div class="field" data-for="task project"><label for="f-due">Due date</label><input id="f-due" type="date"></div>
     <div class="field" data-for="task"><span class="lbl">Subtasks</span><div class="subs" id="subs"></div>
       <div class="quick" style="margin:0"><input id="subIn" placeholder="Add a subtask" aria-label="Add a subtask"><button type="button" id="subAdd">Add</button></div></div>
     <div class="field"><label for="f-notes">Notes</label><textarea id="f-notes" rows="3"></textarea></div>
@@ -564,8 +564,8 @@ function seed(){
     i('Customer feedback survey','work','shaping','Five questions max. Send after each project wraps.'),
     i('Reorganize the home office','personal','shaping'),
     i('Year-in-review recap','projects','ready')];
-  const pr=(title,stream,notes)=>({id:uid(),title,stream,notes});
-  const projects=[pr('Website redesign','projects','Fresh look, faster pages and a simpler contact form.'),pr('Home office refresh','personal','')];
+  const pr=(title,stream,notes,due)=>({id:uid(),title,stream,notes,due:due==null?'':T(due)});
+  const projects=[pr('Website redesign','projects','Fresh look, faster pages and a simpler contact form.',30),pr('Home office refresh','personal','')];
   const P0=projects[0].id,P1=projects[1].id;
   [tasks[2],tasks[5]].forEach(x=>x.project=P0);[tasks[7]].forEach(x=>x.project=P1);
   tasks.push(t('Audit current pages','projects','todo',4),t('Pick a new color palette','projects','doing',6));tasks.slice(-2).forEach(x=>x.project=P0);
@@ -576,7 +576,7 @@ function seed(){
 function normalize(d){
   d.cats=d.cats||[];d.projects=d.projects||[];d.tasks=d.tasks||[];d.events=d.events||[];d.ideas=d.ideas||[];
   if(!d.cats.length)d.cats=[{id:'general',name:'General',color:'#64748B'}];
-  d.projects.forEach(p=>{p.notes=p.notes||''});
+  d.projects.forEach(p=>{p.notes=p.notes||'';p.due=p.due||''});
   d.tasks.forEach(t=>{t.subs=t.subs||[];t.due=t.due||'';t.notes=t.notes||'';t.status=t.status||'todo';t.project=t.project||''});
   d.events.forEach(e=>{e.repeat=e.repeat||'none';e.notes=e.notes||''});
   d.ideas.forEach(i=>{i.notes=i.notes||'';i.col=i.col||'spark';i.project=i.project||''});
@@ -732,7 +732,7 @@ function projStats(id){const ts=S.tasks.filter(t=>t.project===id);const d=ts.fil
 function renderProjects(){
   if(projSel&&!proj(projSel))projSel='';if(!projSel&&S.projects.length)setProj(S.projects[0].id);
   $('#prows').innerHTML=S.projects.map(p=>{const st=projStats(p.id);
-    return `<button type="button" class="prow" data-proj="${p.id}" data-list="proj:${p.id}" data-accept="task idea" aria-current="${p.id===projSel}" style="${cv(p.stream)}"><span class="nm"><span class="dot"></span><span>${esc(p.title)}</span><span class="ct">${st.n?`${st.d}/${st.n}`:''}</span></span><span class="bar"><i style="width:${st.p}%"></i></span></button>`}).join('')||'<div class="empty">No projects yet. Name one below.</div>';
+    return `<button type="button" class="prow" data-proj="${p.id}" data-list="proj:${p.id}" data-accept="task idea" aria-current="${p.id===projSel}" style="${cv(p.stream)}"><span class="nm"><span class="dot"></span><span>${esc(p.title)}</span><span class="ct">${st.n?`${st.d}/${st.n}`:''}</span></span>${p.due&&!(st.n&&st.d===st.n)?`<span class="meta" style="display:flex;color:var(--muted);font-size:11px">${dueLabel(p)}</span>`:''}<span class="bar"><i style="width:${st.p}%"></i></span></button>`}).join('')||'<div class="empty">No projects yet. Name one below.</div>';
   const p=proj(projSel);const out=$('#pdetail');
   if(!p){out.innerHTML=`<div class="panel pempty"><h2>Group your work into projects</h2><p class="sub">A project holds its own ideas and tasks. Capture ideas as they come, then drag one into a task column when you're ready to act on it.</p></div>`;return}
   const st=projStats(p.id);const ideas=S.ideas.filter(i=>i.project===p.id);
@@ -740,7 +740,7 @@ function renderProjects(){
     return `<div class="panel col"><div class="col-h">${v}<span class="count">${ts.length}</span></div>
     ${k==='todo'?'<form class="quick" data-qtask style="margin:0"><input placeholder="Add a task" aria-label="Add a task"><button>Add</button></form>':''}
     <div class="list" data-list="${k}" data-accept="task idea">${ts.map(taskHTML).join('')||`<div class="empty">${k==='todo'?'Drag an idea here to make it a task':'Drop tasks here'}</div>`}</div></div>`}).join('');
-  out.innerHTML=`<div class="panel phead" style="${cv(p.stream)}"><div class="t"><span class="tag">${esc(cat(p.stream).name)}</span><h2>${esc(p.title)}</h2><button class="btn ghost small" data-open="project" data-id="${p.id}">Edit project</button></div>
+  out.innerHTML=`<div class="panel phead" style="${cv(p.stream)}"><div class="t"><span class="tag">${esc(cat(p.stream).name)}</span><h2>${esc(p.title)}</h2>${p.due?dueLabel(p):''}<button class="btn ghost small" data-open="project" data-id="${p.id}">Edit project</button></div>
     ${p.notes?`<p class="notes">${esc(p.notes)}</p>`:''}
     <div class="stat"><span class="bar"><i style="width:${st.p}%"></i></span>${st.n?`${st.d} of ${st.n} tasks done`:'No tasks yet'} · ${st.ideas} ${st.ideas===1?'idea':'ideas'}</div></div>
     <div class="board four"><div class="panel col"><div class="col-h">Ideas<span class="count">${ideas.length}</span></div>
@@ -906,7 +906,7 @@ document.addEventListener('submit',e=>{
   const cp=view==='projects'?proj(projSel):null;
   const sc=cp?cp.stream:(view==='tasks'&&taskFilter!=='all')?taskFilter:(view==='ideas'&&ideaFilter!=='all')?ideaFilter:S.cats[0].id;const pid=cp?cp.id:'';
   if(f.id==='qCat'){const used=S.cats.map(c=>c.color);const color=SWATCHES.find(s=>!used.includes(s))||SWATCHES[0];S.cats.push({id:uid(),name:v,color});toast('Category added')}
-  else if(f.id==='qProj'){const pc=S.cats.find(c=>c.id==='projects')||S.cats[0];const np={id:uid(),title:v,stream:pc.id,notes:''};S.projects.push(np);setProj(np.id);toast('Project added')}
+  else if(f.id==='qProj'){const pc=S.cats.find(c=>c.id==='projects')||S.cats[0];const np={id:uid(),title:v,stream:pc.id,notes:'',due:''};S.projects.push(np);setProj(np.id);toast('Project added')}
   else if(f.id==='qTask'||f.hasAttribute('data-qtask')){S.tasks.unshift({id:uid(),title:v,stream:sc,status:'todo',notes:'',due:'',subs:[],project:pid});toast('Task added')}
   else{S.ideas.unshift({id:uid(),title:v,stream:sc,col:'spark',taskId:null,notes:'',project:pid});toast('Idea saved')}
   inp.value='';save();render();setTimeout(()=>{const again=document.querySelector(f.id?'#'+f.id+' input':(f.hasAttribute('data-qtask')?'[data-qtask] input':'[data-qidea] input'));again&&again.focus()},0);
@@ -975,6 +975,7 @@ $('#editor').addEventListener('submit',e=>{e.preventDefault();
   if(ed.kind==='task')Object.assign(v,{status:$('#f-status').value,due:$('#f-due').value,subs:ed.subs.filter(s=>s.t.trim())});
   if(ed.kind==='idea')v.col=$('#f-col').value;
   if(ed.kind==='task'||ed.kind==='idea')v.project=$('#f-project').value;
+  if(ed.kind==='project')v.due=$('#f-due').value;
   if(ed.kind==='project'&&!ed.item){const np={id:uid(),...v};S.projects.push(np);setProj(np.id);view='projects';save();discardEd();render();toast('Project added');return}
   if(ed.item){Object.assign(ed.item,v);if(ed.kind==='task')S.events.filter(x=>x.taskId===ed.item.id).forEach(x=>{x.title=v.title;x.stream=v.stream})}
   else if(ed.kind==='event')S.events.push({id:uid(),taskId:null,...v});
