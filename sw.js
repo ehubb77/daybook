@@ -1,6 +1,6 @@
 // Daybook service worker: keeps the app working offline.
 // Bump VERSION whenever index.html changes so installed copies pick up the update.
-const VERSION = 'daybook-v6';
+const VERSION = 'daybook-v7';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/favicon-32.png'];
 
 self.addEventListener('install', e => {
